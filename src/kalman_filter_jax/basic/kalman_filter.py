@@ -26,10 +26,12 @@ class KalmanParams(NamedTuple):
     initial_covariance: Float[Array, "... state state"]
 
     # Dynamics model: z_{t+1} = F_t z_t + q_t
+    # F_t and q_t are time-invariant here
     dynamics_weights: Float[Array, "... state state"]    # F
     dynamics_covariance: Float[Array, "... state state"] # Q
 
     # Observation model: y_t = H_t z_t + u_t + r_t
+    # H_t and r_t are time-invariant here; no u_t
     emission_weights: Float[Array, "... obs state"]  # H
     emission_covariance: Float[Array, "... obs obs"] # R
 

@@ -9,8 +9,11 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "beartype>=0.22.5",
+    "equinox>=0.13.4",
+    "flowjax>=18.0.0",
     "jax>=0.8.0",
     "jaxtyping>=0.3.3",
+    "optax>=0.2.7",
 ]
 
 [build-system]
