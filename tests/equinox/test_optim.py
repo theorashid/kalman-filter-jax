@@ -44,6 +44,7 @@ def test_kalman_filter_training_loop(noisy_linear_motion_data):
 
     init_weights_arrays = eqx.filter(model.dynamics_weights, eqx.is_array)
 
+    # optimisation loop follows [diffrax example](https://docs.kidger.site/diffrax/examples/kalman_filter/)
     # Filter spec marks arrays in Trainable classes as True, others as False
     def get_trainable_filter_spec(model):
         def _is_trainable_leaf(module):

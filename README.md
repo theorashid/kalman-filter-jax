@@ -22,18 +22,24 @@ In the Kalman filter step, the [helper](https://github.com/probml/dynamax/blob/m
 ## Equinox
 
 The parameters of the dynamics and observation model are now `eqx.Module` with `__call__` methods (and _only_ this for simplicity), meaning they can be time-varying functions.
-This also makes it easier for optimisation.
+
+This means we can also do optimisation following the Equinox [pattern](https://docs.kidger.site/diffrax/examples/kalman_filter/) of partitioning the model on what to train and what not to.
+I created different `AbstractCovariance` and `AbstractWeights` modules (`equinox/params.py`), some designed to be static and some to be trainable by initialising in an unconstrained space.
+The unconstrained covariance matrix is mapped to positive semidefinite using numpyro bijectors.
+
+I tried using [FlowJax](https://danielward27.github.io/flowjax/api/bijections.html) for the bijections (and maybe even priors on covariance matrices for a fully Bayesian approach) as it keeps everything in Equinox, but it does not have a the bijections we need here. I would like to use numpyro anyway.
 
 Possible extensions:
 
-- Let the `__call__` take in `state_mean` to have more complicated neural networks that depend on the previous state (although could encode this in the weights)
-- The `__call__` emit a matrix and follow the standard linear Kalman filter, but this could be generalised for extended Kalman filter
+- Fully Bayesian approach? Maybe this slots into a numpyro model as is, and we could set a prior over the `TrainableCovariance` unconstrained vector with `numpyro.contrib.module.random_eqx_module()`. However, this sets a prior on the unconstrained space, which is not ideal. I'm also not entirely sure how our marginal log likelihood (include with `numpyro.factor`) and the log prior terms play with each other here to construct our log posterior. It's probably more sensible to look at [what GPJax does](https://docs.jaxgaussianprocesses.com/_examples/numpyro_integration/).
+- Let the `__call__` take in the latent state to have more complicated neural networks that depend on the previous state. This is sketched out at the bottom of `equinox/params.py` with `TrainableNeuralCovariance`
+- Generalise the Kalman filter for nonlinear dynamics
 
 ## remaining
 
 To try:
 
-- nnx
+- nnx (the gpjax way)
 - confirming these work with numpyro
 - PyTensor (maybe? for the linalg graph speedups)
 
@@ -55,4 +61,5 @@ Related projects:
 ```sh
 uv run ruff check --fix
 uv run ty check
+uv run pytest
 ```
