@@ -23,9 +23,11 @@ In the Kalman filter step, the [helper](https://github.com/probml/dynamax/blob/m
 
 The parameters of the dynamics and observation model are now `eqx.Module` with `__call__` methods (and _only_ this for simplicity), meaning they can be time-varying functions.
 
-This means we can also do optimisation following the Equinox [pattern](https://docs.kidger.site/diffrax/examples/kalman_filter/) of partitioning the model on what to train and what not to.
+This means we can also do optimisation on the state space model parameters following the Equinox [pattern](https://docs.kidger.site/diffrax/examples/kalman_filter/) of partitioning the model on what to train and what not to.
 I created different `AbstractCovariance` and `AbstractWeights` modules (`equinox/params.py`), some designed to be static and some to be trainable by initialising in an unconstrained space.
 The unconstrained covariance matrix is mapped to positive semidefinite using numpyro bijectors.
+
+An example optimisation loop is shown in `tests/equinox/test_optim.py`.
 
 I tried using [FlowJax](https://danielward27.github.io/flowjax/api/bijections.html) for the bijections (and maybe even priors on covariance matrices for a fully Bayesian approach) as it keeps everything in Equinox, but it does not have a the bijections we need here. I would like to use numpyro anyway.
 

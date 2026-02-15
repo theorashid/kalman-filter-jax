@@ -18,6 +18,8 @@ from kalman_filter_jax.equinox.params import (
 
 def test_kalman_filter_training_loop(noisy_linear_motion_data):
     """
+    Train a basic Linear Gaussian State Space Model.
+
     Verifies that the Kalman Filter improves its state estimation (denoising)
     on a stochastic trajectory by optimising its internal parameters.
 
