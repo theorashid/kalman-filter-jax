@@ -1,21 +1,10 @@
-import abc
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.scipy as jsp
 from jaxtyping import Array, Float
 
-
-class AbstractWeights(eqx.Module):
-    @abc.abstractmethod
-    def __call__(self, t: Float[Array, ""]) -> Float[Array, "out in"]:
-        ...
-
-class AbstractCovariance(eqx.Module):
-    @abc.abstractmethod
-    def __call__(self, t: Float[Array, ""]) -> Float[Array, "out out"]:
-        ...
+from .params import AbstractCovariance, AbstractWeights
 
 
 class PosteriorFilter(eqx.Module):

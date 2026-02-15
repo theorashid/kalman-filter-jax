@@ -1,24 +1,14 @@
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float
+import pytest
 
-from kalman_filter_jax.equinox.kalman_filter import (
-    AbstractCovariance,
-    AbstractWeights,
-    KalmanFilter,
+from kalman_filter_jax.equinox.kalman_filter import KalmanFilter
+from kalman_filter_jax.equinox.params import (
+    ConstantCovariance,
+    ConstantWeights,
+    TrainableCovariance,
 )
-
-
-class ConstantWeights(AbstractWeights):
-    matrix: Float[Array, "out in"]
-    def __call__(self, _t: Float[Array, ""]) -> Array:
-        return self.matrix
-
-class ConstantCovariance(AbstractCovariance):
-    matrix: Float[Array, "out out"]
-    def __call__(self, _t: Float[Array, ""]) -> Array:
-        return self.matrix
 
 
 def test_kalman_filter_recovers_noiseless_trajectory(linear_motion_data) -> None:
@@ -42,8 +32,12 @@ def test_kalman_filter_recovers_noiseless_trajectory(linear_motion_data) -> None
     ), "The Kalman Filter failed to recover the deterministic trajectory."
 
 
-def test_log_likelihood_is_finite(linear_motion_data) -> None:
-    params, emissions, _ = linear_motion_data
+@pytest.mark.parametrize(
+    "data_fixture",
+    ["linear_motion_data", "noisy_linear_motion_data"]
+)
+def test_log_likelihood_is_finite(request, data_fixture) -> None:
+    params, emissions, _ = request.getfixturevalue(data_fixture)
 
     model = KalmanFilter(
         initial_mean=params.initial_mean,
@@ -58,23 +52,40 @@ def test_log_likelihood_is_finite(linear_motion_data) -> None:
 
     assert jnp.isfinite(posterior.marginal_log_likelihood)
 
-
-def test_covariance_properties(linear_motion_data) -> None:
+@pytest.mark.parametrize("cov_type", ["constant", "trainable"])
+@pytest.mark.parametrize(
+    "data_fixture",
+    ["linear_motion_data", "noisy_linear_motion_data"]
+)
+def test_covariance_properties(request, data_fixture, cov_type) -> None:
     """
     Checks that filtered covariances remain symmetric and positive-definite.
     """
-    params, emissions, _ = linear_motion_data
+    params, emissions, _ = request.getfixturevalue(data_fixture)
+    state_dim = params.initial_mean.shape[0]
+    obs_dim = params.emission_weights.shape[0]
+
+    key = jax.random.key(1)
+    k1, k2, _k3 = jax.random.split(key, 3)
+
+    # Factory for the dynamic covariance components
+    if cov_type == "constant":
+        q_cov = ConstantCovariance(params.dynamics_covariance)
+        r_cov = ConstantCovariance(params.emission_covariance)
+    elif cov_type == "trainable":
+        q_cov = TrainableCovariance(state_dim, key=k1)
+        r_cov = TrainableCovariance(obs_dim, key=k2)
 
     model = KalmanFilter(
         initial_mean=params.initial_mean,
         initial_covariance=params.initial_covariance,
         dynamics_weights=ConstantWeights(params.dynamics_weights),
-        dynamics_covariance=ConstantCovariance(params.dynamics_covariance),
+        dynamics_covariance=q_cov,
         emission_weights=ConstantWeights(params.emission_weights),
-        emission_covariance=ConstantCovariance(params.emission_covariance)
+        emission_covariance=r_cov,
     )
 
-    posterior = model(emissions)
+    posterior = eqx.filter_jit(model)(emissions)
     covs = posterior.filtered_covariances
 
     # Check symmetry: P == P.T
@@ -104,7 +115,7 @@ def test_shared_model_batch_data() -> None:
     )
 
     emissions = jax.random.normal(
-        jax.random.PRNGKey(0),
+        jax.random.key(0),
         (batch_size, timesteps, obs_dim),
     )
 
@@ -121,7 +132,7 @@ def test_batch_filter_batch_data() -> None:
     Matches the test in basic: random data, batched params, checking shapes.
     """
     batch_size, timesteps, state_dim, obs_dim = 5, 10, 2, 1
-    key = jax.random.PRNGKey(2)
+    key = jax.random.key(2)
     k1, k2 = jax.random.split(key, 2)
 
     # function to create many different models (perturbed initial_mean)
