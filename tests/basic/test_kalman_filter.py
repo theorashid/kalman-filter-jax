@@ -1,7 +1,8 @@
+
 import jax
 import jax.numpy as jnp
+import pytest
 from jax import Array
-from jaxtyping import Float
 
 from kalman_filter_jax.basic.kalman_filter import (
     KalmanParams,
@@ -11,10 +12,8 @@ from kalman_filter_jax.basic.kalman_filter import (
 
 
 def test_kalman_filter_recovers_noiseless_trajectory(linear_motion_data) -> None:
-    # TODO: add a test with noise?
     params, emissions, true_states = linear_motion_data
 
-    # TODO: right place to jit?
     posterior = jax.jit(kalman_filter)(params, emissions)
 
     assert jnp.allclose(
@@ -24,35 +23,36 @@ def test_kalman_filter_recovers_noiseless_trajectory(linear_motion_data) -> None
     ), "The Kalman Filter failed to recover the deterministic trajectory."
 
 
-def test_log_likelihood_is_finite(linear_motion_data) -> None:
-    params, emissions, _ = linear_motion_data
+@pytest.mark.parametrize(
+    "data_fixture",
+    ["linear_motion_data", "noisy_linear_motion_data"]
+)
+def test_log_likelihood_is_finite(request, data_fixture) -> None:
+    params, emissions, _ = request.getfixturevalue(data_fixture)
     posterior = kalman_filter(params, emissions)
 
     assert jnp.isfinite(posterior.marginal_log_likelihood)
 
-
-def test_covariance_properties(
-    linear_motion_data: tuple[
-        KalmanParams,
-        Float[Array, "time obs"],
-        Float[Array, "time state"]
-    ]
-) -> None:
+@pytest.mark.parametrize(
+    "data_fixture",
+    ["linear_motion_data", "noisy_linear_motion_data"]
+)
+def test_covariance_properties(request, data_fixture) -> None:
     """
     Checks that filtered covariances remain symmetric and positive-definite.
     """
-    params, emissions, _ = linear_motion_data
+    params, emissions, _ = request.getfixturevalue(data_fixture)
     posterior: PosteriorFilter = kalman_filter(params, emissions)
 
-    covs: Float[Array, "time state state"] = posterior.filtered_covariances
+    covs = posterior.filtered_covariances
 
-    # 1. Symmetry: P should equal P.T for every timestep
+    # symmetry: P should equal P.T for every timestep
     # We transpose the last two axes (-1, -2) to check symmetry
     is_symmetric: Array = jnp.allclose(covs, jnp.matrix_transpose(covs), atol=1e-6)
     assert is_symmetric, "Filtered covariances are not symmetric."
 
-    # 2. Positive Definiteness: All eigenvalues should be > 0
-    eigenvalues: Float[Array, "time state"] = jnp.linalg.eigvalsh(covs)
+    # positive definiteness: All eigenvalues should be > 0
+    eigenvalues = jnp.linalg.eigvalsh(covs)
     assert jnp.all(eigenvalues > 0), "Filtered covariances are not positive-definite."
 
 
