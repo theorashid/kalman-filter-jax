@@ -1,7 +1,10 @@
 from abc import abstractmethod
 
 from flax import nnx
+from gpjax.parameters import Real
 from jaxtyping import Array, Float
+
+from .gpjax_parameters_extras import PSDMatrix
 
 
 class AbstractWeights(nnx.Module):
@@ -25,3 +28,25 @@ class ConstantCovariance(AbstractCovariance):
         self.matrix = matrix
     def __call__(self, _t: Float[Array, ""]) -> Array:
         return self.matrix
+
+
+class TrainableCovariance(AbstractCovariance):
+    matrix: PSDMatrix
+
+    def __init__(self, matrix: Float[Array, "dim dim"]):
+        self.matrix = PSDMatrix(matrix)
+
+    def __call__(self, _t: Float[Array, ""]) -> Float[Array, "dim dim"]:
+        # transform(inverse=False) handles the vector -> PSD mapping
+        return self.matrix[...]
+
+
+class TrainableWeights(AbstractWeights):
+    matrix: Real
+
+    def __init__(self, matrix: Float[Array, "out in"]):
+        self.matrix = Real(matrix)
+
+    def __call__(self, _t: Float[Array, ""]) -> Float[Array, "out in"]:
+        # transform(inverse=False) reshapes the flat vector back to (out, in)
+        return self.matrix[...]
