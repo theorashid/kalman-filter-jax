@@ -30,7 +30,7 @@ def test_kalman_filter_training_loop(noisy_linear_motion_data):
     params, emissions, _true_states = noisy_linear_motion_data
     state_dim = params.initial_mean.shape[0]
     key = jax.random.key(2)
-    k1, k2, _k3 = jax.random.split(key, 3)
+    k1, k2 = jax.random.split(key, 2)
 
     # initialise with a random wrong dynamics matrix to give Adam something to do
     model = KalmanFilter(
