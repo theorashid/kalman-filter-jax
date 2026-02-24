@@ -3,6 +3,8 @@
 Trying out different jax-based libraries by implementing a [Kalman filter](https://theorashid.github.io/notes/kalman-filtering-and-smoothing) to solve [linear Gaussian state space models](https://theorashid.github.io/notes/linear-gaussian-ssm).
 
 While I was playing around with this, [cuthbert](https://github.com/state-space-models/cuthbert) was released, which is much more feature-complete (numerically stable, other filters, etc).
+The Kalman filter in this repo is very simple and follows the textbook maths rather than using numerical stability tricks.
+This repo serves more as an exercise in how to interface other jax packages (numpyro, nnx, Equinox) with a custom inference method like a Kalman filter.
 
 ## basic
 
@@ -37,12 +39,34 @@ Possible extensions:
 - Let the `__call__` take in the latent state to have more complicated neural networks that depend on the previous state. This is sketched out at the bottom of `equinox/params.py` with `TrainableNeuralCovariance`
 - Generalise the Kalman filter for nonlinear dynamics
 
+## nnx (via GPJax)
+
+The parameters of the dynamics and observation model are now `nnx.Module` with `__call__` methods.
+The implementation of the Kalman filter itself was more difficult for the batch case.
+Unlike Equinox, I could not just use `jax.vmap` over the batch dimension.
+I needed `...` in all the type hints, and ended up using `.mT` and `einsum` everywhere.
+Note, I'm now using `nnx.vmap`, `nnx.scan` and `nnx.jit`, just in case we have any stateful parameters anywhere.
+
+I closely followed the GPJax `Parameter` pattern so I could eventually piggback on the [numpyro integration](https://docs.jaxgaussianprocesses.com/_examples/numpyro_integration/).
+Like Equinox, we can [partition](https://docs.jaxgaussianprocesses.com/_examples/backend/?h=backend#parameter-transforms) the model based on what we do and do not want to optimise.
+Each `Parameter` has a bijection that we can `transform` [to and from the unconstrained space](https://theorashid.github.io/notes/jax-and-state#nnx) using `nnx.split` to partition.
+Inference (optimisation, MAP, NUTS sampling etc) is done in the unconstrained space.
+The loss function is defined in the constrained space.
+
+I extended GPJax to add a `PSDMatrix(Parameter[T])` (with GPJax-style tests in `tests/nnx/test_gpjax_parameters_extras.py`).
+Unlike Equinox, the `TrainableCovariance` matrix is initialised in the constrained space, rather than the flat unconstrained vector.
+
+`tests/nnx/test_optim.py` shows how to perform optimisation using the [GPJax fit pattern](https://github.com/thomaspinder/GPJax/blob/b620398bd4d45b317f2199410b570924d7fa7a3a/gpjax/fit.py#L132-L178).
+
+Having followed the GPJax pattern throughout, I could now use the `gpjax.numpyro_extras.register_parameters` to replace values in the `nnx.Module` with sampled ones from numpyro distributions.
+`tests/nnx/test_numpyro_model.py` shows how to write a model with priors on the dynamics/emissions parameters of the Kalman filter, for fully-Bayesian inference.
+
 ## remaining
 
 To try:
 
-- nnx (the gpjax way)
-- confirming these work with numpyro
+- get Equinox working with numpyro
+- extending to do forecasting and missing values
 - PyTensor (maybe? for the linalg graph speedups)
 
 ## resources

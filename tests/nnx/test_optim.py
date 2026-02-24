@@ -29,13 +29,13 @@ def test_kalman_filter_training_loop(noisy_linear_motion_data):
     """
     params_data, emissions, _true_states = noisy_linear_motion_data
     state_dim = params_data.initial_mean.shape[0]
-    key = jax.random.key(10)
+    key = jax.random.key(2)
 
     # make random dynamics_weights init
     dynamics_weights_init = jax.random.normal(key, (state_dim, state_dim))
 
     # make PSD dynamics_covariance init
-    dynamic_covariance_init = jnp.eye(state_dim)
+    dynamics_covariance_init = jnp.eye(state_dim)
 
     # initialise with a random wrong dynamics matrix to give Adam something to do
     model = KalmanFilter(
@@ -43,7 +43,7 @@ def test_kalman_filter_training_loop(noisy_linear_motion_data):
         initial_covariance=params_data.initial_covariance,
         # trainable dynamics components
         dynamics_weights=TrainableWeights(dynamics_weights_init),
-        dynamics_covariance=TrainableCovariance(dynamic_covariance_init),
+        dynamics_covariance=TrainableCovariance(dynamics_covariance_init),
         # assume emission (sensor) model H and R are known/fixed
         emission_weights=ConstantWeights(params_data.emission_weights),
         emission_covariance=ConstantCovariance(params_data.emission_covariance)

@@ -33,8 +33,9 @@ class ConstantCovariance(AbstractCovariance):
 class TrainableCovariance(AbstractCovariance):
     matrix: PSDMatrix
 
-    def __init__(self, matrix: Float[Array, "dim dim"]):
-        self.matrix = PSDMatrix(matrix)
+    def __init__(self, matrix: Float[Array, "dim dim"], **kwargs):
+        # kwargs (which includes 'prior') to Real -> Parameter
+        self.matrix = PSDMatrix(matrix, **kwargs)
 
     def __call__(self, _t: Float[Array, ""]) -> Float[Array, "dim dim"]:
         # transform(inverse=False) handles the vector -> PSD mapping
@@ -44,8 +45,8 @@ class TrainableCovariance(AbstractCovariance):
 class TrainableWeights(AbstractWeights):
     matrix: Real
 
-    def __init__(self, matrix: Float[Array, "out in"]):
-        self.matrix = Real(matrix)
+    def __init__(self, matrix: Float[Array, "out in"], **kwargs):
+        self.matrix = Real(matrix, **kwargs)
 
     def __call__(self, _t: Float[Array, ""]) -> Float[Array, "out in"]:
         # transform(inverse=False) reshapes the flat vector back to (out, in)
