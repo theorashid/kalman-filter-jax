@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "beartype>=0.22.5",
+    "cuthbert>=0.0.8",
     "equinox>=0.13.4",
     "gpjax>=0.13.6",
     "jax>=0.8.0",

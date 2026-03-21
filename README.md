@@ -21,6 +21,13 @@ In dynamax, these matrices can be time-varying.
 The `ParamsLGSSM*` elements can be overloaded with shapes `Float[Array, "state_dim state_dim"] | Float[Array, "ntime state_dim state_dim"]` for the time-invariant and varying cases.
 In the Kalman filter step, the [helper](https://github.com/probml/dynamax/blob/main/dynamax/linear_gaussian_ssm/inference.py#L151-L170) `_get_one_param` plucks the variable depending on whether the input is a time-varying matrix, static matrix or a function.
 
+### basic (cuthbert)
+
+A thin wrapper around [cuthbert](https://github.com/state-space-models/cuthbert)'s numerically stable Kalman filter, reusing the same `KalmanParams` and `PosteriorFilter` types from the basic implementation.
+Internally it converts covariances to Cholesky factors and sets up cuthbert's callback-based API (`get_init_params`, `get_dynamics_params`, `get_observation_params`).
+It supports parallel filtering via the `parallel` flag (using cuthbert's associative scan).
+Batching still works via `jax.vmap` as in the basic case.
+
 ## Equinox
 
 The parameters of the dynamics and observation model are now `eqx.Module` with `__call__` methods (and _only_ this for simplicity), meaning they can be time-varying functions.
@@ -76,6 +83,7 @@ I have some notes [on state space models](https://theorashid.github.io/notes/#ss
 
 Related projects:
 
+- [cuthbert](https://github.com/state-space-models/cuthbert)
 - [filterjax](https://github.com/GStechschulte/filter-jax)
 - [dynamax](https://github.com/probml/dynamax)
 - [PyMC Statespace](https://github.com/pymc-devs/pymc-extras/tree/main/pymc_extras/statespace)
