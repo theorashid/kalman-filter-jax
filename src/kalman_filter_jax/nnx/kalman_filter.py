@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import NamedTuple
 
 import jax.numpy as jnp
@@ -12,19 +13,14 @@ class PosteriorFilter(NamedTuple):
     filtered_covariances: Float[Array, "... time state state"]
 
 class KalmanFilter(nnx.Module):
-    dynamics_weights: nnx.Module
-    dynamics_covariance: nnx.Module
-    emission_weights: nnx.Module
-    emission_covariance: nnx.Module
-
     def __init__(
         self,
         initial_mean: Float[Array, "... state"],
         initial_covariance: Float[Array, "... state state"],
-        dynamics_weights: nnx.Module,
-        dynamics_covariance: nnx.Module,
-        emission_weights: nnx.Module,
-        emission_covariance: nnx.Module,
+        dynamics_weights: Callable[[Float[Array, ""]], Array],
+        dynamics_covariance: Callable[[Float[Array, ""]], Array],
+        emission_weights: Callable[[Float[Array, ""]], Array],
+        emission_covariance: Callable[[Float[Array, ""]], Array],
     ):
         # static
         self.initial_mean = initial_mean

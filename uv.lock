@@ -292,7 +292,7 @@ requires-dist = [
     { name = "beartype", specifier = ">=0.22.5" },
     { name = "cuthbert", specifier = ">=0.0.8" },
     { name = "equinox", specifier = ">=0.13.4" },
-    { name = "gpjax", specifier = ">=0.13.6" },
+    { name = "gpjax", specifier = "==0.13.6" },
     { name = "jax", specifier = ">=0.8.0" },
     { name = "jaxtyping", specifier = ">=0.3.3" },
     { name = "numpyro", specifier = ">=0.20.0" },

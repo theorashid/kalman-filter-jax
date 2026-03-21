@@ -8,12 +8,7 @@ from gpjax.parameters import Parameter, transform
 
 from kalman_filter_jax.nnx.gpjax_parameters_extras import DEFAULT_BIJECTION
 from kalman_filter_jax.nnx.kalman_filter import KalmanFilter
-from kalman_filter_jax.nnx.params import (
-    ConstantCovariance,
-    ConstantWeights,
-    TrainableCovariance,
-    TrainableWeights,
-)
+from kalman_filter_jax.nnx.params import TrainableCovariance, TrainableWeights
 
 
 def test_kalman_filter_training_loop(noisy_linear_motion_data):
@@ -45,8 +40,8 @@ def test_kalman_filter_training_loop(noisy_linear_motion_data):
         dynamics_weights=TrainableWeights(dynamics_weights_init),
         dynamics_covariance=TrainableCovariance(dynamics_covariance_init),
         # assume emission (sensor) model H and R are known/fixed
-        emission_weights=ConstantWeights(params_data.emission_weights),
-        emission_covariance=ConstantCovariance(params_data.emission_covariance)
+        emission_weights=lambda _t: params_data.emission_weights,
+        emission_covariance=lambda _t: params_data.emission_covariance,
     )
 
     # Model state filtering
@@ -107,7 +102,7 @@ def test_kalman_filter_training_loop(noisy_linear_motion_data):
 
     # check constant components were not touched during optimisation
     assert jnp.array_equal(
-        final_model.emission_weights.matrix,
+        final_model.emission_weights(jnp.array(0.0)),
         params_data.emission_weights
     )
 

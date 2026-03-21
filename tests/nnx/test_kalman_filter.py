@@ -4,10 +4,6 @@ import pytest
 from flax import nnx
 
 from kalman_filter_jax.nnx.kalman_filter import KalmanFilter
-from kalman_filter_jax.nnx.params import (
-    ConstantCovariance,
-    ConstantWeights,
-)
 
 
 def test_kalman_filter_recovers_noiseless_trajectory(linear_motion_data) -> None:
@@ -16,10 +12,10 @@ def test_kalman_filter_recovers_noiseless_trajectory(linear_motion_data) -> None
     model = KalmanFilter(
         initial_mean=params.initial_mean,
         initial_covariance=params.initial_covariance,
-        dynamics_weights=ConstantWeights(params.dynamics_weights),
-        dynamics_covariance=ConstantCovariance(params.dynamics_covariance),
-        emission_weights=ConstantWeights(params.emission_weights),
-        emission_covariance=ConstantCovariance(params.emission_covariance)
+        dynamics_weights=lambda _t: params.dynamics_weights,
+        dynamics_covariance=lambda _t: params.dynamics_covariance,
+        emission_weights=lambda _t: params.emission_weights,
+        emission_covariance=lambda _t: params.emission_covariance,
     )
 
     posterior = nnx.jit(model)(emissions)
@@ -40,45 +36,33 @@ def test_log_likelihood_is_finite(request, data_fixture) -> None:
     model = KalmanFilter(
         initial_mean=params.initial_mean,
         initial_covariance=params.initial_covariance,
-        dynamics_weights=ConstantWeights(params.dynamics_weights),
-        dynamics_covariance=ConstantCovariance(params.dynamics_covariance),
-        emission_weights=ConstantWeights(params.emission_weights),
-        emission_covariance=ConstantCovariance(params.emission_covariance)
+        dynamics_weights=lambda _t: params.dynamics_weights,
+        dynamics_covariance=lambda _t: params.dynamics_covariance,
+        emission_weights=lambda _t: params.emission_weights,
+        emission_covariance=lambda _t: params.emission_covariance,
     )
 
     posterior = model(emissions)
 
     assert jnp.isfinite(posterior.marginal_log_likelihood)
 
-@pytest.mark.parametrize("cov_type", ["constant"])
 @pytest.mark.parametrize(
     "data_fixture",
     ["linear_motion_data", "noisy_linear_motion_data"]
 )
-def test_covariance_properties(request, data_fixture, cov_type) -> None:
+def test_covariance_properties(request, data_fixture) -> None:
     """
     Checks that filtered covariances remain symmetric and positive-definite.
     """
     params, emissions, _ = request.getfixturevalue(data_fixture)
-    # state_dim = params.initial_mean.shape[0]
-    # obs_dim = params.emission_weights.shape[0]
-
-    # key = jax.random.key(1)
-    # k1, k2 = jax.random.split(key, 2)
-
-    # Factory for the dynamic covariance components
-    if cov_type == "constant":
-        q_cov = ConstantCovariance(params.dynamics_covariance)
-        r_cov = ConstantCovariance(params.emission_covariance)
-    # elif cov_type == "trainable":
 
     model = KalmanFilter(
         initial_mean=params.initial_mean,
         initial_covariance=params.initial_covariance,
-        dynamics_weights=ConstantWeights(params.dynamics_weights),
-        dynamics_covariance=q_cov,
-        emission_weights=ConstantWeights(params.emission_weights),
-        emission_covariance=r_cov,
+        dynamics_weights=lambda _t: params.dynamics_weights,
+        dynamics_covariance=lambda _t: params.dynamics_covariance,
+        emission_weights=lambda _t: params.emission_weights,
+        emission_covariance=lambda _t: params.emission_covariance,
     )
 
     posterior = nnx.jit(model)(emissions)
@@ -100,10 +84,10 @@ def test_shared_model_batch_data() -> None:
     model = KalmanFilter(
         initial_mean=jnp.ones(state_dim),
         initial_covariance=jnp.eye(state_dim),
-        dynamics_weights=ConstantWeights(jnp.eye(state_dim)),
-        dynamics_covariance=ConstantCovariance(jnp.eye(state_dim) * 0.1),
-        emission_weights=ConstantWeights(jnp.zeros((obs_dim, state_dim))),
-        emission_covariance=ConstantCovariance(jnp.eye(obs_dim))
+        dynamics_weights=lambda _t: jnp.eye(state_dim),
+        dynamics_covariance=lambda _t: jnp.eye(state_dim) * 0.1,
+        emission_weights=lambda _t: jnp.zeros((obs_dim, state_dim)),
+        emission_covariance=lambda _t: jnp.eye(obs_dim),
     )
 
     emissions = jax.random.normal(jax.random.key(0), (batch_size, timesteps, obs_dim))
@@ -128,10 +112,10 @@ def test_batch_filter_batch_data() -> None:
     batched_model = nnx.vmap(KalmanFilter, in_axes=(0, None, None, None, None, None))(
         initial_mean_batched,
         jnp.eye(state_dim),
-        ConstantWeights(jnp.eye(state_dim)),
-        ConstantCovariance(jnp.eye(state_dim) * 0.1),
-        ConstantWeights(jnp.zeros((obs_dim, state_dim))),
-        ConstantCovariance(jnp.eye(obs_dim))
+        lambda _t: jnp.eye(state_dim),
+        lambda _t: jnp.eye(state_dim) * 0.1,
+        lambda _t: jnp.zeros((obs_dim, state_dim)),
+        lambda _t: jnp.eye(obs_dim),
     )
 
     emissions = jax.random.normal(k2, (batch_size, timesteps, obs_dim))

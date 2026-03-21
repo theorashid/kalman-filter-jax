@@ -48,16 +48,21 @@ Possible extensions:
 
 ## nnx (via GPJax)
 
-The parameters of the dynamics and observation model are now `nnx.Module` with `__call__` methods.
+`KalmanFilter` is an `nnx.Module` whose dynamics and observation components are callables `(t) -> Array`, following [cuthbert](https://github.com/state-space-models/cuthbert)'s callback-based design.
+For constant parameters, a lambda (`lambda _t: matrix`).
+For trainable parameters, we use `nnx.Module` subclasses (`TrainableWeights`, `TrainableCovariance`) that wrap GPJax `Parameter` types with bijections for constrained optimisation.
+
 The implementation of the Kalman filter itself was more difficult for the batch case.
 Unlike Equinox, I could not just use `jax.vmap` over the batch dimension.
 I needed `...` in all the type hints, and ended up using `.mT` and `einsum` everywhere.
 Note, I'm now using `nnx.vmap`, `nnx.scan` and `nnx.jit`, just in case we have any stateful parameters anywhere.
 
-I closely followed the GPJax `Parameter` pattern so I could eventually piggback on the [numpyro integration](https://docs.jaxgaussianprocesses.com/_examples/numpyro_integration/).
-Like Equinox, we can [partition](https://docs.jaxgaussianprocesses.com/_examples/backend/?h=backend#parameter-transforms) the model based on what we do and do not want to optimise.
+### Optimisation
+
+I followed the GPJax `Parameter` pattern for optimisation.
+We can [partition](https://docs.jaxgaussianprocesses.com/_examples/backend/?h=backend#parameter-transforms) the model based on what we do and do not want to optimise.
 Each `Parameter` has a bijection that we can `transform` [to and from the unconstrained space](https://theorashid.github.io/notes/jax-and-state#nnx) using `nnx.split` to partition.
-Inference (optimisation, MAP, NUTS sampling etc) is done in the unconstrained space.
+Inference (optimisation, MAP) is done in the unconstrained space.
 The loss function is defined in the constrained space.
 
 I extended GPJax to add a `PSDMatrix(Parameter[T])` (with GPJax-style tests in `tests/nnx/test_gpjax_parameters_extras.py`).
@@ -65,8 +70,17 @@ Unlike Equinox, the `TrainableCovariance` matrix is initialised in the constrain
 
 `tests/nnx/test_optim.py` shows how to perform optimisation using the [GPJax fit pattern](https://github.com/thomaspinder/GPJax/blob/b620398bd4d45b317f2199410b570924d7fa7a3a/gpjax/fit.py#L132-L178).
 
-Having followed the GPJax pattern throughout, I could now use the `gpjax.numpyro_extras.register_parameters` to replace values in the `nnx.Module` with sampled ones from numpyro distributions.
-`tests/nnx/test_numpyro_model.py` shows how to write a model with priors on the dynamics/emissions parameters of the Kalman filter, for fully-Bayesian inference.
+### Fully Bayesian (numpyro)
+
+I originally used `gpjax.numpyro_extras.register_parameters` to replace values in the `nnx.Module` with sampled ones from numpyro distributions.
+`register_parameters` walks the `nnx.Module` tree, finds all `Parameter` leaves with priors, and calls `numpyro.sample` for each.
+But numpyro already handles constraints through its distributions (e.g. `InverseWishart` produces PSD matrices, `Normal` produces unconstrained reals), so the `Parameter` bijection machinery is redundant in this path.
+We don't need `register_parameters` at all.
+
+Instead, we write standard `numpyro.sample` statements and pass the sampled arrays directly to the `KalmanFilter` as lambdas.
+This is cleaner, more idiomatic numpyro, and decouples the sampling path from the GPJax dependency.
+
+`tests/nnx/test_numpyro_model.py` shows how to write a model with priors on the dynamics parameters of the Kalman filter, for fully-Bayesian inference.
 
 ## remaining
 

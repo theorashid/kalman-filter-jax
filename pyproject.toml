@@ -11,7 +11,7 @@ dependencies = [
     "beartype>=0.22.5",
     "cuthbert>=0.0.8",
     "equinox>=0.13.4",
-    "gpjax>=0.13.6",
+    "gpjax==0.13.6",
     "jax>=0.8.0",
     "jaxtyping>=0.3.3",
     "numpyro>=0.20.0",
