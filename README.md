@@ -30,21 +30,38 @@ Batching still works via `jax.vmap` as in the basic case.
 
 ## Equinox
 
-The parameters of the dynamics and observation model are now `eqx.Module` with `__call__` methods (and _only_ this for simplicity), meaning they can be time-varying functions.
+`KalmanFilter` is an `eqx.Module` whose dynamics and observation components are callables `(t) -> Array`.
+For constant parameters, a lambda (`lambda _t: matrix`).
+For trainable parameters, we use `eqx.Module` subclasses (`TrainableWeights`, `TrainableCovariance`) that store parameters internally and apply bijections in their `__call__`.
 
-This means we can also do optimisation on the state space model parameters following the Equinox [pattern](https://docs.kidger.site/diffrax/examples/kalman_filter/) of partitioning the model on what to train and what not to.
-I created different `AbstractCovariance` and `AbstractWeights` modules (`equinox/params.py`), some designed to be static and some to be trainable by initialising in an unconstrained space.
-The unconstrained covariance matrix is mapped to positive semidefinite using numpyro bijectors.
+The Kalman gain solve uses [lineax](https://docs.kidger.site/lineax/) with `MatrixLinearOperator` and a `positive_semidefinite_tag` for Cholesky-based solves.
+This is extensible: for structured covariance (e.g. diagonal noise), swapping to `lx.DiagonalLinearOperator` gives O(n) solves without materialising the full matrix.
 
-An example optimisation loop is shown in `tests/equinox/test_optim.py`.
+### Optimisation
 
-I tried using [FlowJax](https://danielward27.github.io/flowjax/api/bijections.html) for the bijections (and maybe even priors on covariance matrices for a fully Bayesian approach) as it keeps everything in Equinox, but it does not have a the bijections we need here. I would like to use numpyro anyway.
+Optimisation follows the Equinox [pattern](https://docs.kidger.site/diffrax/examples/kalman_filter/) of partitioning the model into trainable and static parts with `eqx.partition` and `eqx.tree_at`.
+`TrainableCovariance` initialises from a constrained PSD matrix, stores an unconstrained vector internally, and maps it back to PSD via numpyro bijectors (`SoftplusLowerCholeskyTransform` + `CholeskyTransform.inv`) in `__call__`.
+The optimiser works directly on the unconstrained parameters.
 
-Possible extensions:
+I considered using [paramax](https://github.com/danielward27/paramax) (as [GPJax is doing](https://github.com/thomaspinder/GPJax/pull/614)) where `paramax.unwrap(model)` resolves all constrained parameters tree-wide, eliminating the need for partition.
+But the explicit `eqx.tree_at` filter spec is more transparent about what's trainable here.
 
-- Fully Bayesian approach? Maybe this slots into a numpyro model as is, and we could set a prior over the `TrainableCovariance` unconstrained vector with `numpyro.contrib.module.random_eqx_module()`. However, this sets a prior on the unconstrained space, which is not ideal. I'm also not entirely sure how our marginal log likelihood (include with `numpyro.factor`) and the log prior terms play with each other here to construct our log posterior. It's probably more sensible to look at [what GPJax does](https://docs.jaxgaussianprocesses.com/_examples/numpyro_integration/).
-- Let the `__call__` take in the latent state to have more complicated neural networks that depend on the previous state. This is sketched out at the bottom of `equinox/params.py` with `TrainableNeuralCovariance`
-- Generalise the Kalman filter for nonlinear dynamics
+`tests/equinox/test_optim.py` shows the optimisation loop.
+
+### Fully Bayesian (numpyro)
+
+For numpyro, we write standard `numpyro.sample` statements and pass the sampled arrays directly to the `KalmanFilter` as lambdas (`lambda _t: F`).
+Numpyro distributions handle constraints themselves (e.g. `InverseWishart` produces PSD matrices), so no bijections are needed on this path.
+
+`tests/equinox/test_numpyro_model.py` shows how to write a model with priors on the dynamics parameters.
+
+### Extensions
+
+Sketched out in `equinox/params.py`:
+
+- `DiagonalCovariance`: diagonal noise per dimension, with a lineax `DiagonalLinearOperator` opportunity for O(n) solves.
+- `NeuralCovariance`: state-dependent covariance via an MLP. Has a `(t, state)` signature, so the KalmanFilter would need adapting to pass the latent state through.
+- Generalise for nonlinear dynamics: the callable design already supports this `dynamics_weights(t, state)`. Could apply a general function over the latent state rather than a matrix multiply.
 
 ## nnx (via GPJax)
 
@@ -82,11 +99,21 @@ This is cleaner, more idiomatic numpyro, and decouples the sampling path from th
 
 `tests/nnx/test_numpyro_model.py` shows how to write a model with priors on the dynamics parameters of the Kalman filter, for fully-Bayesian inference.
 
+## Equinox vs nnx
+
+I prefer the Equinox version.
+
+- The linear algebra reads like maths: `@` everywhere vs `jnp.einsum("...ij,...j->...i", ...)` in nnx, because nnx bakes the batch dimension into the filter itself.
+- Batching is just `jax.vmap`. Equinox modules are regular pytrees. nnx needs `nnx.vmap` with explicit axis config and `...` dims threaded through the whole filter. Same story for `jax.lax.scan` vs `nnx.scan`.
+- Bijections use numpyro's constraint registry: `biject_to(constraints.positive_definite)`. nnx needs a custom `PSDMatrix(Parameter)` subclass and a mutation to GPJax's global `DEFAULT_BIJECTION` dict.
+- The optimisation loop is simpler: `eqx.partition`/`combine` with the bijection hidden inside `__call__`. nnx needs `nnx.split`/`merge` + explicit `transform(params, bijection, inverse=True/False)` on every loss evaluation.
+- lineax gives structured solves (`MatrixLinearOperator` with PSD tag, swappable to `DiagonalLinearOperator` for O(n)). nnx uses `scipy.linalg.solve` with a full matrix.
+
 ## remaining
 
 To try:
 
-- get Equinox working with numpyro
+- Equinox + cuthbert
 - extending to do forecasting and missing values
 - PyTensor (maybe? for the linalg graph speedups)
 

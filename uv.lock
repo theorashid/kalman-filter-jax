@@ -275,6 +275,7 @@ dependencies = [
     { name = "gpjax" },
     { name = "jax" },
     { name = "jaxtyping" },
+    { name = "lineax" },
     { name = "numpyro" },
     { name = "optax" },
 ]
@@ -295,6 +296,7 @@ requires-dist = [
     { name = "gpjax", specifier = "==0.13.6" },
     { name = "jax", specifier = ">=0.8.0" },
     { name = "jaxtyping", specifier = ">=0.3.3" },
+    { name = "lineax", specifier = ">=0.1.0" },
     { name = "numpyro", specifier = ">=0.20.0" },
     { name = "optax", specifier = ">=0.2.7" },
 ]
@@ -305,6 +307,21 @@ dev = [
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "ruff", specifier = ">=0.14.4" },
     { name = "ty", specifier = ">=0.0.1a25" },
+]
+
+[[package]]
+name = "lineax"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "equinox" },
+    { name = "jax" },
+    { name = "jaxtyping" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/35/d6/4e28416a6fe58dd6bc7565b1ffa330f4d0ba7d74212642b1b734c511299e/lineax-0.1.0.tar.gz", hash = "sha256:5f1a8f060142af2cdbf7d66b99e8d3071c3aa734b677df6339df4b4c4c0554d2", size = 50209, upload-time = "2026-01-27T21:17:26.652Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/80/0c/2ed47112fc1958a0a81c9b015d4e1861953a1ec3a17b081c0180a25ce82c/lineax-0.1.0-py3-none-any.whl", hash = "sha256:f00911c6b07d427c4835db46856970c8348bc82a035b51f4386ad09382af957a", size = 74600, upload-time = "2026-01-27T21:17:25.33Z" },
 ]
 
 [[package]]

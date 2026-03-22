@@ -1,10 +1,10 @@
+from collections.abc import Callable
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import jax.scipy as jsp
+import lineax as lx
 from jaxtyping import Array, Float
-
-from .params import AbstractCovariance, AbstractWeights
 
 
 class PosteriorFilter(eqx.Module):
@@ -18,14 +18,12 @@ class KalmanFilter(eqx.Module):
     initial_covariance: Float[Array, "state state"]
 
     # Dynamics model: z_{t+1} = F_t z_t + q_t
-    # could probably do callable[Float[Array, ""], Float[Array, "out in"]]
-    # but keeping things in Equinox is safer for training
-    dynamics_weights: AbstractWeights       # F_t
-    dynamics_covariance: AbstractCovariance # Q_t
+    dynamics_weights: Callable[[Float[Array, ""]], Array]       # F_t
+    dynamics_covariance: Callable[[Float[Array, ""]], Array]    # Q_t
 
-    # Observation model: y_t = H_t z_t + u_t + r_t
-    emission_weights: AbstractWeights        # H_t
-    emission_covariance: AbstractCovariance  # R_t
+    # Observation model: y_t = H_t z_t + r_t
+    emission_weights: Callable[[Float[Array, ""]], Array]       # H_t
+    emission_covariance: Callable[[Float[Array, ""]], Array]    # R_t
 
     def predict(
         self,
@@ -59,25 +57,37 @@ class KalmanFilter(eqx.Module):
         # y_hat = H_t @ m_prior; residual = y_t - y_hat
         residual = observation - (emission_weights_t @ prior_mean)
 
-        # S_t = H_t @ P_prior @ H.T + R
+        # S_t = H_t @ P_prior @ H_t.T + R_t
         innovation_covariance = (
             emission_weights_t @ prior_covariance @ emission_weights_t.T
             + emission_covariance_t
         )
 
-        # Kalman Gain: K = P_prior @ H.T @ S^-1
-        kalman_gain = jsp.linalg.solve(
-            innovation_covariance,
-            emission_weights_t @ prior_covariance,
-            assume_a="pos",
-        ).T
+        # Kalman gain: K = P_prior @ H_t.T @ S^{-1}
+        # Solved via lineax Cholesky with PSD tag.
+        # For structured covariance (e.g. diagonal), swap
+        # MatrixLinearOperator for DiagonalLinearOperator to get
+        # O(n) solves without materialising the full matrix.
+        rhs = emission_weights_t @ prior_covariance
+        S_op = lx.MatrixLinearOperator(innovation_covariance)
+        S_tagged = lx.TaggedLinearOperator(
+            S_op, lx.positive_semidefinite_tag
+        )
+        kalman_gain = jax.vmap(
+            lambda col: lx.linear_solve(
+                S_tagged, col, solver=lx.Cholesky(), throw=False
+            ).value,
+            in_axes=1,
+            out_axes=1,
+        )(rhs).T
 
         # Posterior mean update belief: m_t = m_prior + K @ residual
         filtered_mean = prior_mean + kalman_gain @ residual
 
         # Posterior Covariance: P_t = P_prior - K @ S @ K.T
         filtered_covariance = (
-            prior_covariance - kalman_gain @ innovation_covariance @ kalman_gain.T
+            prior_covariance
+            - kalman_gain @ innovation_covariance @ kalman_gain.T
         )
 
         return filtered_mean, filtered_covariance
@@ -99,15 +109,15 @@ class KalmanFilter(eqx.Module):
             + emission_covariance_t
         )
 
-        return jsp.stats.multivariate_normal.logpdf(
+        return jax.scipy.stats.multivariate_normal.logpdf(
             observation,
             mean=predicted_obs_mean,
-            cov=innovation_covariance
+            cov=innovation_covariance,
         )
 
     def __call__(
         self,
-        emissions: Float[Array, "time obs"]
+        emissions: Float[Array, "time obs"],
     ) -> PosteriorFilter:
         num_timesteps = emissions.shape[0]
         ts = jnp.arange(num_timesteps, dtype=jnp.float32)
@@ -128,7 +138,9 @@ class KalmanFilter(eqx.Module):
             return (m_filt, P_filt), (m_filt, P_filt, ll)
 
         initial_carry = (self.initial_mean, self.initial_covariance)
-        _, (means, covs, lls) = jax.lax.scan(step, initial_carry, (emissions, ts))
+        _, (means, covs, lls) = jax.lax.scan(
+            step, initial_carry, (emissions, ts)
+        )
 
         return PosteriorFilter(
             marginal_log_likelihood=jnp.sum(lls),

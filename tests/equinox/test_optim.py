@@ -5,15 +5,7 @@ import jax.tree_util as jtu
 import optax
 
 from kalman_filter_jax.equinox.kalman_filter import KalmanFilter
-from kalman_filter_jax.equinox.params import (
-    AbstractConstantMatrix,
-    AbstractCovariance,
-    AbstractWeights,
-    ConstantCovariance,
-    ConstantWeights,
-    TrainableCovariance,
-    TrainableWeights,
-)
+from kalman_filter_jax.equinox.params import TrainableCovariance, TrainableWeights
 
 
 def test_kalman_filter_training_loop(noisy_linear_motion_data):
@@ -27,87 +19,81 @@ def test_kalman_filter_training_loop(noisy_linear_motion_data):
     1. Gradients are only computed for trainable parameters.
     2. The loss decreases after optimization steps.
     """
-    params, emissions, _true_states = noisy_linear_motion_data
-    state_dim = params.initial_mean.shape[0]
+    params_data, emissions, _true_states = noisy_linear_motion_data
+    state_dim = params_data.initial_mean.shape[0]
     key = jax.random.key(2)
-    k1, k2 = jax.random.split(key, 2)
 
     # initialise with a random wrong dynamics matrix to give Adam something to do
+    dynamics_weights_init = jax.random.normal(key, (state_dim, state_dim))
+    dynamics_covariance_init = jnp.eye(state_dim)
+
     model = KalmanFilter(
-        initial_mean=params.initial_mean,
-        initial_covariance=params.initial_covariance,
+        initial_mean=params_data.initial_mean,
+        initial_covariance=params_data.initial_covariance,
         # trainable dynamics components
-        dynamics_weights=TrainableWeights(state_dim, state_dim, key=k1),
-        dynamics_covariance=TrainableCovariance(state_dim, key=k2),
+        dynamics_weights=TrainableWeights(dynamics_weights_init),
+        dynamics_covariance=TrainableCovariance(dynamics_covariance_init),
         # assume emission (sensor) model H and R are known/fixed
-        emission_weights=ConstantWeights(params.emission_weights),
-        emission_covariance=ConstantCovariance(params.emission_covariance)
+        emission_weights=lambda _t: params_data.emission_weights,
+        emission_covariance=lambda _t: params_data.emission_covariance,
     )
 
-    init_weights_arrays = eqx.filter(model.dynamics_weights, eqx.is_array)
+    assert isinstance(model.dynamics_weights, TrainableWeights)
+    init_weights = model.dynamics_weights.matrix.copy()
 
-    # optimisation loop follows [diffrax example](https://docs.kidger.site/diffrax/examples/kalman_filter/)
-    # Filter spec marks arrays in Trainable classes as True, others as False
-    def get_trainable_filter_spec(model):
-        def _is_trainable_leaf(module):
-            if isinstance(module, AbstractConstantMatrix):
-                return jtu.tree_map(lambda _: False, module)
-            return jtu.tree_map(eqx.is_array, module)
+    # Filter spec marks arrays in trainable classes as True, others as False.
+    # Follows the diffrax pattern:
+    # https://docs.kidger.site/diffrax/examples/kalman_filter/
+    filter_spec = jtu.tree_map(lambda _: False, model)
+    filter_spec = eqx.tree_at(
+        lambda m: (m.dynamics_weights, m.dynamics_covariance),
+        filter_spec,
+        replace=(
+            jtu.tree_map(lambda _: True, model.dynamics_weights),
+            jtu.tree_map(lambda _: True, model.dynamics_covariance),
+        ),
+    )
 
-        return jtu.tree_map(
-            _is_trainable_leaf,
-            model,
-            is_leaf=lambda x: isinstance(
-                x,
-                (AbstractWeights, AbstractCovariance, eqx.nn.MLP)
-            )
-        )
-
-
-    filter_spec = get_trainable_filter_spec(model)
-
-    # setup optimiser. opt.init should only see the trainable part of the tree
-    opt = optax.adam(5e-3) # Slightly lower LR for stability on noisy data
-    trainable_params, _ = eqx.partition(model, filter_spec)
-    opt_state = opt.init(trainable_params)
+    # setup optimiser -- opt.init should only see the trainable part
+    opt = optax.adam(5e-3)
+    trainable, _static = eqx.partition(model, filter_spec)
+    opt_state = opt.init(trainable)
 
     @eqx.filter_value_and_grad
-    def loss_fn(dynamic_m, static_m, y):
-        m = eqx.combine(dynamic_m, static_m)
+    def loss_fn(trainable, static, y):
+        m = eqx.combine(trainable, static)
         posterior = m(y)
         return -posterior.marginal_log_likelihood
 
     @eqx.filter_jit
     def make_step(m, state, y):
-        dynamic_m, static_m = eqx.partition(m, filter_spec)
-        loss, grads = loss_fn(dynamic_m, static_m, y)
+        t, s = eqx.partition(m, filter_spec)
+        loss, grads = loss_fn(t, s, y)
         updates, state = opt.update(grads, state)
-        m = eqx.apply_updates(m, updates)
-        return loss, m, state
+        t = eqx.apply_updates(t, updates)
+        return loss, eqx.combine(t, s), state
 
-    # run for more steps (50) because noisy gradients require more evidence
-    initial_nll, model, opt_state = make_step(model, opt_state, emissions)
+    initial_nll, model, opt_state = make_step(
+        model, opt_state, emissions
+    )
     current_nll = initial_nll
     for _ in range(50):
-        current_nll, model, opt_state = make_step(model, opt_state, emissions)
+        current_nll, model, opt_state = make_step(
+            model, opt_state, emissions
+        )
 
     # test denoising: loss should decrease significantly
-    assert current_nll < initial_nll, "Optimisation failed, loss did not improve"
+    assert current_nll < initial_nll
 
-    # check constant components were not touched during optimisation
-    assert jnp.array_equal(model.emission_weights.matrix, params.emission_weights)
+    # constant emissions unchanged
+    assert jnp.array_equal(
+        model.emission_weights(jnp.array(0.0)),
+        params_data.emission_weights,
+    )
 
-    # test trainable components moved from initial values
-    final_weights_arrays = eqx.filter(model.dynamics_weights, eqx.is_array)
-    eqx.filter(model.dynamics_covariance, eqx.is_array)
-    assert not jax.tree_util.tree_all(
-        jax.tree_util.tree_map(
-            jnp.array_equal,
-            init_weights_arrays,
-            final_weights_arrays,
-        )
-    ), "Weights did not change"
+    # trainable weights moved
+    assert not jnp.array_equal(model.dynamics_weights.matrix, init_weights)
 
-    # double check we still have a PSD matrix
+    # covariance still PSD
     Q_final = model.dynamics_covariance(jnp.array(0.0))
     assert jnp.all(jnp.linalg.eigvalsh(Q_final) > 0)

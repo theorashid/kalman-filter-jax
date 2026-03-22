@@ -14,6 +14,7 @@ dependencies = [
     "gpjax==0.13.6",
     "jax>=0.8.0",
     "jaxtyping>=0.3.3",
+    "lineax>=0.1.0",
     "numpyro>=0.20.0",
     "optax>=0.2.7",
 ]
