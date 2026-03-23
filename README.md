@@ -109,11 +109,24 @@ I prefer the Equinox version.
 - The optimisation loop is simpler: `eqx.partition`/`combine` with the bijection hidden inside `__call__`. nnx needs `nnx.split`/`merge` + explicit `transform(params, bijection, inverse=True/False)` on every loss evaluation.
 - lineax gives structured solves (`MatrixLinearOperator` with PSD tag, swappable to `DiagonalLinearOperator` for O(n)). nnx uses `scipy.linalg.solve` with a full matrix.
 
+## Linear Gaussian State Space Model
+
+`LinearGaussianSSM` separates model specification from inference (see [cuthbert#218](https://github.com/state-space-models/cuthbert/issues/218) and [dynestyx](https://github.com/BasisResearch/dynestyx)).
+Define the model, then call `.infer(emissions, method=...)` to choose the inner loop.
+Inference is done by [cuthbert](https://github.com/state-space-models/cuthbert): `"kalman"` (sequential) or `"kalman_parallel"` (associative scan).
+
+All parameter fields are callables `(t) -> Array`, matching cuthbert's callback contract.
+For static parameters, wrap in a lambda.
+For trainable parameters, use `TrainableWeights` or `TrainableCovariance`.
+
+The inner loop (filtering) is handled by cuthbert.
+The outer loop (parameter estimation) is the user's choice: MLE via optax with `eqx.partition`/`combine` (`tests/lgssm/test_optim.py`), or fully Bayesian via numpyro with `numpyro.sample` + `numpyro.factor` on the marginal log-likelihood (`tests/lgssm/test_numpyro_model.py`).
+The model doesn't care which outer loop you use -- it just returns a posterior given emissions.
+
 ## remaining
 
 To try:
 
-- Equinox + cuthbert
 - extending to do forecasting and missing values
 - PyTensor (maybe? for the linalg graph speedups)
 
@@ -125,6 +138,7 @@ I have some notes [on state space models](https://theorashid.github.io/notes/#ss
 Related projects:
 
 - [cuthbert](https://github.com/state-space-models/cuthbert)
+- [dynestyx](https://github.com/BasisResearch/dynestyx)
 - [filterjax](https://github.com/GStechschulte/filter-jax)
 - [dynamax](https://github.com/probml/dynamax)
 - [PyMC Statespace](https://github.com/pymc-devs/pymc-extras/tree/main/pymc_extras/statespace)
