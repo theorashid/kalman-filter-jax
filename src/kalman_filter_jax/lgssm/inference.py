@@ -45,34 +45,28 @@ def filter_kalman(
     # Index 0 -> get_init_params, indices 1..n_time -> dynamics/observation.
     # The callbacks evaluate the model's callables at each timestep.
 
-    def get_init_params(
-        _model_inputs: object,
-    ) -> tuple[Array, Array]:
+    def get_init_params(_model_inputs):
         return model.initial_mean, chol_P0
 
-    def get_dynamics_params(
-        model_inputs: object,
-    ) -> tuple[Array, Array, Array]:
-        t = jnp.array(model_inputs - 1, dtype=dtype)  # type: ignore[operator]
+    def get_dynamics_params(model_inputs):
+        t = jnp.array(model_inputs - 1, dtype=dtype)
         F_t = model.dynamics_weights(t)
         Q_t = model.dynamics_covariance(t)
         chol_Q_t = jnp.linalg.cholesky(Q_t)
         return F_t, c, chol_Q_t
 
-    def get_observation_params(
-        model_inputs: object,
-    ) -> tuple[Array, Array, Array, Array]:
-        t = jnp.array(model_inputs - 1, dtype=dtype)  # type: ignore[operator]
-        t_idx = jnp.array(model_inputs - 1, dtype=jnp.int32)  # type: ignore[operator]
+    def get_observation_params(model_inputs):
+        t = jnp.array(model_inputs - 1, dtype=dtype)
+        t_idx = jnp.array(model_inputs - 1, dtype=jnp.int32)
         H_t = model.emission_weights(t)
         R_t = model.emission_covariance(t)
         chol_R_t = jnp.linalg.cholesky(R_t)
         return H_t, d, chol_R_t, emissions[t_idx]
 
     filter_obj = kalman.build_filter(
-        get_init_params,  # type: ignore[arg-type]
-        get_dynamics_params,  # type: ignore[arg-type]
-        get_observation_params,  # type: ignore[arg-type]
+        get_init_params,
+        get_dynamics_params,
+        get_observation_params,
     )
 
     n_time = emissions.shape[0]
